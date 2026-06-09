@@ -7,9 +7,12 @@ import Collections from './components/Collections';
 import Workbench from './components/Workbench';
 import CheatConsole from './components/CheatConsole';
 import RelativisticTransition from './components/RelativisticTransition';
+import AuthScreen from './components/AuthScreen';
 import { curatedResources } from './data/curatedResources';
+import { isFirebaseConfigured, signOutGoogle, subscribeToFirebaseAuth } from './utils/firebaseAuth';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState(null);
   const [activePage, setActivePage] = useState('dashboard');
   const [theme, setTheme] = useState('dark');
   const [query, setQuery] = useState('');
@@ -26,12 +29,26 @@ export default function App() {
   const [activeTransition, setActiveTransition] = useState(null);
   const [transitionClass, setTransitionClass] = useState('');
   const [transformOrigin, setTransformOrigin] = useState('center center');
+  const [authReady, setAuthReady] = useState(!isFirebaseConfigured);
 
-  // Load theme and saved binder items from localStorage on mount
+  // Load theme, auth session, and saved binder items from localStorage on mount
   useEffect(() => {
     const localTheme = localStorage.getItem('studyspace_theme') || 'dark';
     setTheme(localTheme);
     document.documentElement.setAttribute('data-theme', localTheme);
+
+    const localUser = localStorage.getItem('studyspace_user');
+    if (localUser) {
+      try {
+        const parsedUser = JSON.parse(localUser);
+        if (parsedUser.provider === 'guest' || !isFirebaseConfigured) {
+          setCurrentUser(parsedUser);
+        }
+      } catch (err) {
+        console.error("Error loading user session:", err);
+        localStorage.removeItem('studyspace_user');
+      }
+    }
 
     const localSaved = localStorage.getItem('studyspace_saved');
     if (localSaved) {
@@ -41,6 +58,36 @@ export default function App() {
         console.error("Error loading binder items:", err);
       }
     }
+  }, []);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured) return undefined;
+
+    return subscribeToFirebaseAuth((firebaseUser) => {
+      setAuthReady(true);
+
+      if (firebaseUser) {
+        setCurrentUser(firebaseUser);
+        localStorage.setItem('studyspace_user', JSON.stringify(firebaseUser));
+        return;
+      }
+
+      const localUser = localStorage.getItem('studyspace_user');
+      if (localUser) {
+        try {
+          const parsedUser = JSON.parse(localUser);
+          if (parsedUser.provider === 'guest') {
+            setCurrentUser(parsedUser);
+            return;
+          }
+        } catch (err) {
+          console.error("Error loading guest session:", err);
+        }
+      }
+
+      setCurrentUser(null);
+      localStorage.removeItem('studyspace_user');
+    });
   }, []);
   
   // Trigger KaTeX rendering globally across the page whenever visual view state updates
@@ -86,6 +133,20 @@ export default function App() {
     setTheme(nextTheme);
     document.documentElement.setAttribute('data-theme', nextTheme);
     localStorage.setItem('studyspace_theme', nextTheme);
+  };
+
+  const handleSignIn = (user) => {
+    setCurrentUser(user);
+    localStorage.setItem('studyspace_user', JSON.stringify(user));
+  };
+
+  const handleSignOut = async () => {
+    if (currentUser?.provider === 'google') {
+      await signOutGoogle();
+    }
+
+    setCurrentUser(null);
+    localStorage.removeItem('studyspace_user');
   };
 
   // Helper to persist saved items state to localStorage
@@ -612,6 +673,18 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
     }
   };
 
+  if (!authReady) {
+    return (
+      <div className="flex-center" style={{ minHeight: '100vh' }}>
+        <p>Loading sign-in...</p>
+      </div>
+    );
+  }
+
+  if (!currentUser) {
+    return <AuthScreen onSignIn={handleSignIn} />;
+  }
+
   return (
     <div className="app-container" style={{ overflow: 'hidden', minHeight: '100vh', width: '100vw' }}>
       {/* Visual content wrapper that gets transformed/warped */}
@@ -625,6 +698,8 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
           setActivePage={setActivePage} 
           theme={theme} 
           toggleTheme={toggleTheme} 
+          currentUser={currentUser}
+          onSignOut={handleSignOut}
         />
 
         {/* Main Content Area */}

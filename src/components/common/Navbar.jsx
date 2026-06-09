@@ -7,10 +7,11 @@ import {
   GraduationCap, 
   Sun, 
   Moon,
-  Library
+  Library,
+  LogOut
 } from 'lucide-react';
 
-export default function Navbar({ activePage, setActivePage, theme, toggleTheme }) {
+export default function Navbar({ activePage, setActivePage, theme, toggleTheme, currentUser, onSignOut }) {
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'navigator', label: 'Curriculum Roadmap', icon: Map },
@@ -43,8 +44,10 @@ export default function Navbar({ activePage, setActivePage, theme, toggleTheme }
             <Library size={20} />
           </div>
           <div className="profile-info">
-            <span className="profile-name">Student Workbench</span>
-            <span className="profile-grade">Grade 11 & 12</span>
+            <span className="profile-name">{currentUser?.name || 'Student Workbench'}</span>
+            <span className="profile-grade">
+              {currentUser?.provider === 'google' ? currentUser.email : 'Guest account'}
+            </span>
           </div>
         </div>
 
@@ -79,6 +82,10 @@ export default function Navbar({ activePage, setActivePage, theme, toggleTheme }
                 <span>Dark Mode</span>
               </>
             )}
+          </button>
+          <button className="sign-out-btn" onClick={onSignOut}>
+            <LogOut size={18} />
+            <span>Sign Out</span>
           </button>
           <div className="credits">v1.1.0 • Academic Hub</div>
         </div>
@@ -250,6 +257,29 @@ export default function Navbar({ activePage, setActivePage, theme, toggleTheme }
 
         .sidebar-footer .theme-toggle-btn:hover {
           background: var(--border-color);
+          color: var(--text-primary);
+        }
+
+        .sign-out-btn {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.5rem;
+          padding: 0.7rem;
+          border-radius: 10px;
+          background: transparent;
+          border: 1px solid var(--border-color);
+          color: var(--text-secondary);
+          font-family: var(--font-body);
+          font-weight: 600;
+          font-size: 0.85rem;
+          cursor: pointer;
+          transition: all 0.2s ease;
+        }
+
+        .sign-out-btn:hover {
+          background: var(--bg-tertiary);
           color: var(--text-primary);
         }
 
