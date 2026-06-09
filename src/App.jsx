@@ -25,6 +25,7 @@ export default function App() {
   const [showCheatTab, setShowCheatTab] = useState(false);
   const [activeTransition, setActiveTransition] = useState(null);
   const [transitionClass, setTransitionClass] = useState('');
+  const [transformOrigin, setTransformOrigin] = useState('center center');
 
   // Load theme and saved binder items from localStorage on mount
   useEffect(() => {
@@ -547,6 +548,10 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
       type = 'redshift';
     }
 
+    const originX = window.scrollX + window.innerWidth / 2;
+    const originY = window.scrollY + window.innerHeight / 2;
+    setTransformOrigin(`${originX}px ${originY}px`);
+
     setTransitionClass(`transition-${type}`);
     setActiveTransition({ type, resource });
   };
@@ -557,6 +562,7 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
     }
     setActiveTransition(null);
     setTransitionClass('');
+    setTransformOrigin('center center');
   };
 
   // Page Routing Switch
@@ -609,7 +615,10 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
   return (
     <div className="app-container" style={{ overflow: 'hidden', minHeight: '100vh', width: '100vw' }}>
       {/* Visual content wrapper that gets transformed/warped */}
-      <div className={`transition-content-wrapper ${transitionClass}`}>
+      <div 
+        className={`transition-content-wrapper ${transitionClass}`}
+        style={{ transformOrigin }}
+      >
         {/* Side Navigation Bar */}
         <Navbar 
           activePage={activePage} 
