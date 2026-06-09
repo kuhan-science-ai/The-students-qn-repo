@@ -30,6 +30,7 @@ export default function App() {
   const [transitionClass, setTransitionClass] = useState('');
   const [transformOrigin, setTransformOrigin] = useState('center center');
   const [authReady, setAuthReady] = useState(!isFirebaseConfigured);
+  const [authSetupError, setAuthSetupError] = useState('');
 
   // Load theme, auth session, and saved binder items from localStorage on mount
   useEffect(() => {
@@ -63,31 +64,37 @@ export default function App() {
   useEffect(() => {
     if (!isFirebaseConfigured) return undefined;
 
-    return subscribeToFirebaseAuth((firebaseUser) => {
-      setAuthReady(true);
+    return subscribeToFirebaseAuth(
+      (firebaseUser) => {
+        setAuthReady(true);
 
-      if (firebaseUser) {
-        setCurrentUser(firebaseUser);
-        localStorage.setItem('studyspace_user', JSON.stringify(firebaseUser));
-        return;
-      }
-
-      const localUser = localStorage.getItem('studyspace_user');
-      if (localUser) {
-        try {
-          const parsedUser = JSON.parse(localUser);
-          if (parsedUser.provider === 'guest') {
-            setCurrentUser(parsedUser);
-            return;
-          }
-        } catch (err) {
-          console.error("Error loading guest session:", err);
+        if (firebaseUser) {
+          setCurrentUser(firebaseUser);
+          localStorage.setItem('studyspace_user', JSON.stringify(firebaseUser));
+          return;
         }
-      }
 
-      setCurrentUser(null);
-      localStorage.removeItem('studyspace_user');
-    });
+        const localUser = localStorage.getItem('studyspace_user');
+        if (localUser) {
+          try {
+            const parsedUser = JSON.parse(localUser);
+            if (parsedUser.provider === 'guest') {
+              setCurrentUser(parsedUser);
+              return;
+            }
+          } catch (err) {
+            console.error("Error loading guest session:", err);
+          }
+        }
+
+        setCurrentUser(null);
+        localStorage.removeItem('studyspace_user');
+      },
+      () => {
+        setAuthSetupError('Firebase sign-in is misconfigured. Check the Render env variables and Firebase authorized domain.');
+        setAuthReady(true);
+      }
+    );
   }, []);
   
   // Trigger KaTeX rendering globally across the page whenever visual view state updates
@@ -682,7 +689,7 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
   }
 
   if (!currentUser) {
-    return <AuthScreen onSignIn={handleSignIn} />;
+    return <AuthScreen onSignIn={handleSignIn} setupError={authSetupError} />;
   }
 
   return (
