@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { GraduationCap, UserRound, ShieldCheck } from 'lucide-react';
 import { isFirebaseConfigured, signInWithGoogle } from '../utils/firebaseAuth';
 
-export default function AuthScreen({ onSignIn }) {
+export default function AuthScreen({ onSignIn, setupError }) {
   const [isSigningIn, setIsSigningIn] = useState(false);
   const [authError, setAuthError] = useState('');
 
@@ -73,7 +73,7 @@ export default function AuthScreen({ onSignIn }) {
         <p className="auth-note">
           Guest mode keeps your binder and notes in this browser only.
         </p>
-        {authError && <p className="auth-error">{authError}</p>}
+        {(setupError || authError) && <p className="auth-error">{setupError || authError}</p>}
       </section>
 
       <style>{`

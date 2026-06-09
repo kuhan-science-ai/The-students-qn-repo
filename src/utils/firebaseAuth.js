@@ -43,17 +43,34 @@ function getFirebaseAuth() {
     throw new Error('Firebase auth is not configured.');
   }
 
-  const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
-  return getAuth(app);
+  try {
+    const app = getApps().length ? getApps()[0] : initializeApp(firebaseConfig);
+    return getAuth(app);
+  } catch (err) {
+    console.error('Firebase initialization failed:', err);
+    throw new Error('Firebase auth could not start. Check your Firebase environment variables.');
+  }
 }
 
-export function subscribeToFirebaseAuth(callback) {
+export function subscribeToFirebaseAuth(callback, onError) {
   if (!isFirebaseConfigured) return () => {};
 
-  const auth = getFirebaseAuth();
-  return onAuthStateChanged(auth, (user) => {
-    callback(mapFirebaseUser(user));
-  });
+  try {
+    const auth = getFirebaseAuth();
+    return onAuthStateChanged(
+      auth,
+      (user) => {
+        callback(mapFirebaseUser(user));
+      },
+      (err) => {
+        console.error('Firebase auth state failed:', err);
+        onError?.(err);
+      }
+    );
+  } catch (err) {
+    onError?.(err);
+    return () => {};
+  }
 }
 
 export async function signInWithGoogle() {
