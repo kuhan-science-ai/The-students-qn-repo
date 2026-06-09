@@ -1,68 +1,25 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
 import { GraduationCap, UserRound, ShieldCheck } from 'lucide-react';
-
-const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID;
-
-function decodeJwtPayload(token) {
-  try {
-    const payload = token.split('.')[1];
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    return JSON.parse(window.atob(normalized));
-  } catch (err) {
-    console.error('Unable to decode Google sign-in token:', err);
-    return null;
-  }
-}
+import { isFirebaseConfigured, signInWithGoogle } from '../utils/firebaseAuth';
 
 export default function AuthScreen({ onSignIn }) {
-  const googleButtonRef = useRef(null);
-  const [googleReady, setGoogleReady] = useState(false);
+  const [isSigningIn, setIsSigningIn] = useState(false);
+  const [authError, setAuthError] = useState('');
 
-  useEffect(() => {
-    if (!GOOGLE_CLIENT_ID || !googleButtonRef.current) return;
+  const handleGoogleSignIn = async () => {
+    setAuthError('');
+    setIsSigningIn(true);
 
-    const initializeGoogle = () => {
-      if (!window.google?.accounts?.id || !googleButtonRef.current) return;
-
-      window.google.accounts.id.initialize({
-        client_id: GOOGLE_CLIENT_ID,
-        callback: (response) => {
-          const profile = decodeJwtPayload(response.credential);
-          if (!profile) return;
-
-          onSignIn({
-            provider: 'google',
-            name: profile.name || 'Google Student',
-            email: profile.email || '',
-            picture: profile.picture || '',
-            signedInAt: new Date().toISOString()
-          });
-        }
-      });
-
-      window.google.accounts.id.renderButton(googleButtonRef.current, {
-        theme: 'outline',
-        size: 'large',
-        width: googleButtonRef.current.offsetWidth || 320,
-        text: 'continue_with',
-        shape: 'rectangular'
-      });
-
-      setGoogleReady(true);
-    };
-
-    if (window.google?.accounts?.id) {
-      initializeGoogle();
-      return;
+    try {
+      const user = await signInWithGoogle();
+      onSignIn(user);
+    } catch (err) {
+      console.error('Google sign-in failed:', err);
+      setAuthError('Google sign-in failed. Check Firebase setup and authorized domains.');
+    } finally {
+      setIsSigningIn(false);
     }
-
-    const script = document.createElement('script');
-    script.src = 'https://accounts.google.com/gsi/client';
-    script.async = true;
-    script.defer = true;
-    script.onload = initializeGoogle;
-    document.head.appendChild(script);
-  }, [onSignIn]);
+  };
 
   const handleGuestSignIn = () => {
     onSignIn({
@@ -88,15 +45,23 @@ export default function AuthScreen({ onSignIn }) {
         </div>
 
         <div className="auth-actions">
-          {GOOGLE_CLIENT_ID ? (
-            <div className="google-button-wrap" ref={googleButtonRef}>
-              {!googleReady && <span className="google-loading">Loading Google sign-in...</span>}
-            </div>
-          ) : (
-            <button className="auth-button auth-button-muted" type="button" disabled>
+          <button
+            className={`auth-button ${isFirebaseConfigured ? 'auth-button-google' : 'auth-button-muted'}`}
+            type="button"
+            onClick={handleGoogleSignIn}
+            disabled={!isFirebaseConfigured || isSigningIn}
+          >
+            <ShieldCheck size={19} />
+            {isFirebaseConfigured
+              ? (isSigningIn ? 'Opening Google...' : 'Continue with Google')
+              : 'Firebase Google sign-in needs setup'}
+          </button>
+
+          {!isFirebaseConfigured && (
+            <p className="auth-warning">
               <ShieldCheck size={19} />
-              Google sign-in needs setup
-            </button>
+              Add Firebase env variables in Render to enable real Google login.
+            </p>
           )}
 
           <button className="auth-button auth-button-primary" type="button" onClick={handleGuestSignIn}>
@@ -108,6 +73,7 @@ export default function AuthScreen({ onSignIn }) {
         <p className="auth-note">
           Guest mode keeps your binder and notes in this browser only.
         </p>
+        {authError && <p className="auth-error">{authError}</p>}
       </section>
 
       <style>{`
@@ -169,19 +135,6 @@ export default function AuthScreen({ onSignIn }) {
           gap: 0.85rem;
         }
 
-        .google-button-wrap {
-          width: 100%;
-          min-height: 44px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .google-loading {
-          color: var(--text-secondary);
-          font-size: 0.9rem;
-        }
-
         .auth-button {
           width: 100%;
           min-height: 48px;
@@ -210,6 +163,17 @@ export default function AuthScreen({ onSignIn }) {
           cursor: not-allowed;
         }
 
+        .auth-button-google {
+          color: var(--text-primary);
+          background: var(--bg-secondary);
+          border-color: var(--border-color);
+        }
+
+        .auth-button-google:hover:not(:disabled) {
+          border-color: var(--accent-primary);
+          transform: translateY(-1px);
+        }
+
         .auth-button-primary:hover {
           transform: translateY(-1px);
           filter: brightness(1.08);
@@ -220,6 +184,23 @@ export default function AuthScreen({ onSignIn }) {
           font-size: 0.86rem;
           color: var(--text-muted);
           text-align: center;
+        }
+
+        .auth-warning,
+        .auth-error {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 0.45rem;
+          font-size: 0.78rem;
+          line-height: 1.4;
+          text-align: center;
+          color: var(--text-muted);
+        }
+
+        .auth-error {
+          margin-top: 0.85rem;
+          color: var(--color-article);
         }
       `}</style>
     </main>

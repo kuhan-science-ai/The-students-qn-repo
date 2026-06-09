@@ -9,6 +9,7 @@ import CheatConsole from './components/CheatConsole';
 import RelativisticTransition from './components/RelativisticTransition';
 import AuthScreen from './components/AuthScreen';
 import { curatedResources } from './data/curatedResources';
+import { isFirebaseConfigured, signOutGoogle, subscribeToFirebaseAuth } from './utils/firebaseAuth';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
@@ -27,6 +28,7 @@ export default function App() {
   const [showCheatTab, setShowCheatTab] = useState(false);
   const [activeTransition, setActiveTransition] = useState(null);
   const [transitionClass, setTransitionClass] = useState('');
+  const [authReady, setAuthReady] = useState(!isFirebaseConfigured);
 
   // Load theme, auth session, and saved binder items from localStorage on mount
   useEffect(() => {
@@ -37,7 +39,10 @@ export default function App() {
     const localUser = localStorage.getItem('studyspace_user');
     if (localUser) {
       try {
-        setCurrentUser(JSON.parse(localUser));
+        const parsedUser = JSON.parse(localUser);
+        if (parsedUser.provider === 'guest' || !isFirebaseConfigured) {
+          setCurrentUser(parsedUser);
+        }
       } catch (err) {
         console.error("Error loading user session:", err);
         localStorage.removeItem('studyspace_user');
@@ -52,6 +57,36 @@ export default function App() {
         console.error("Error loading binder items:", err);
       }
     }
+  }, []);
+
+  useEffect(() => {
+    if (!isFirebaseConfigured) return undefined;
+
+    return subscribeToFirebaseAuth((firebaseUser) => {
+      setAuthReady(true);
+
+      if (firebaseUser) {
+        setCurrentUser(firebaseUser);
+        localStorage.setItem('studyspace_user', JSON.stringify(firebaseUser));
+        return;
+      }
+
+      const localUser = localStorage.getItem('studyspace_user');
+      if (localUser) {
+        try {
+          const parsedUser = JSON.parse(localUser);
+          if (parsedUser.provider === 'guest') {
+            setCurrentUser(parsedUser);
+            return;
+          }
+        } catch (err) {
+          console.error("Error loading guest session:", err);
+        }
+      }
+
+      setCurrentUser(null);
+      localStorage.removeItem('studyspace_user');
+    });
   }, []);
   
   // Trigger KaTeX rendering globally across the page whenever visual view state updates
@@ -104,7 +139,11 @@ export default function App() {
     localStorage.setItem('studyspace_user', JSON.stringify(user));
   };
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    if (currentUser?.provider === 'google') {
+      await signOutGoogle();
+    }
+
     setCurrentUser(null);
     localStorage.removeItem('studyspace_user');
   };
@@ -627,6 +666,14 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
         return <Dashboard setActivePage={setActivePage} savedItems={savedItems} />;
     }
   };
+
+  if (!authReady) {
+    return (
+      <div className="flex-center" style={{ minHeight: '100vh' }}>
+        <p>Loading sign-in...</p>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return <AuthScreen onSignIn={handleSignIn} />;
