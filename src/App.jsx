@@ -7,9 +7,11 @@ import Collections from './components/Collections';
 import Workbench from './components/Workbench';
 import CheatConsole from './components/CheatConsole';
 import RelativisticTransition from './components/RelativisticTransition';
+import AuthScreen from './components/AuthScreen';
 import { curatedResources } from './data/curatedResources';
 
 export default function App() {
+  const [currentUser, setCurrentUser] = useState(null);
   const [activePage, setActivePage] = useState('dashboard');
   const [theme, setTheme] = useState('dark');
   const [query, setQuery] = useState('');
@@ -26,11 +28,21 @@ export default function App() {
   const [activeTransition, setActiveTransition] = useState(null);
   const [transitionClass, setTransitionClass] = useState('');
 
-  // Load theme and saved binder items from localStorage on mount
+  // Load theme, auth session, and saved binder items from localStorage on mount
   useEffect(() => {
     const localTheme = localStorage.getItem('studyspace_theme') || 'dark';
     setTheme(localTheme);
     document.documentElement.setAttribute('data-theme', localTheme);
+
+    const localUser = localStorage.getItem('studyspace_user');
+    if (localUser) {
+      try {
+        setCurrentUser(JSON.parse(localUser));
+      } catch (err) {
+        console.error("Error loading user session:", err);
+        localStorage.removeItem('studyspace_user');
+      }
+    }
 
     const localSaved = localStorage.getItem('studyspace_saved');
     if (localSaved) {
@@ -85,6 +97,16 @@ export default function App() {
     setTheme(nextTheme);
     document.documentElement.setAttribute('data-theme', nextTheme);
     localStorage.setItem('studyspace_theme', nextTheme);
+  };
+
+  const handleSignIn = (user) => {
+    setCurrentUser(user);
+    localStorage.setItem('studyspace_user', JSON.stringify(user));
+  };
+
+  const handleSignOut = () => {
+    setCurrentUser(null);
+    localStorage.removeItem('studyspace_user');
   };
 
   // Helper to persist saved items state to localStorage
@@ -606,6 +628,10 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
     }
   };
 
+  if (!currentUser) {
+    return <AuthScreen onSignIn={handleSignIn} />;
+  }
+
   return (
     <div className="app-container" style={{ overflow: 'hidden', minHeight: '100vh', width: '100vw' }}>
       {/* Visual content wrapper that gets transformed/warped */}
@@ -616,6 +642,8 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
           setActivePage={setActivePage} 
           theme={theme} 
           toggleTheme={toggleTheme} 
+          currentUser={currentUser}
+          onSignOut={handleSignOut}
         />
 
         {/* Main Content Area */}
