@@ -66,6 +66,102 @@ export default function Collections({
     }
   };
 
+  // Client-side LaTeX compiler parser for downloads
+  const compileLaTeX = (latexText) => {
+    if (!latexText) return '<div class="latex-compiled-empty">Start typing LaTeX code to compile your paper...</div>';
+
+    let html = latexText;
+
+    // Extract Title, Author, Date
+    let title = "";
+    let author = "";
+    let date = "";
+
+    const titleMatch = latexText.match(/\\title\{([^}]+)\}/);
+    if (titleMatch) title = titleMatch[1];
+
+    const authorMatch = latexText.match(/\\author\{([^}]+)\}/);
+    if (authorMatch) author = authorMatch[1];
+
+    const dateMatch = latexText.match(/\\date\{([^}]+)\}/);
+    if (dateMatch) {
+      date = dateMatch[1] === '\\today' ? new Date().toLocaleDateString() : dateMatch[1];
+    }
+
+    // Compile title block
+    const makeTitleHtml = `
+      <div class="latex-title-block">
+        <h1 class="latex-compiled-title">${title || 'Academic Paper'}</h1>
+        <div class="latex-compiled-author">${author || ''}</div>
+        <div class="latex-compiled-date">${date || ''}</div>
+      </div>
+    `;
+
+    // Replace \maketitle
+    html = html.replace(/\\maketitle/g, makeTitleHtml);
+
+    // Strip preamble items
+    html = html.replace(/\\documentclass\{[^}]+\}/g, '');
+    html = html.replace(/\\title\{[^}]+\}/g, '');
+    html = html.replace(/\\author\{[^}]+\}/g, '');
+    html = html.replace(/\\date\{[^}]+\}/g, '');
+    html = html.replace(/\\begin\{document\}/g, '');
+    html = html.replace(/\\end\{document\}/g, '');
+
+    // Replace explicit line breaks
+    html = html.replace(/\\\\|\\newline/g, '<br />');
+
+    // Replace Section headings
+    let sectionCount = 0;
+    html = html.replace(/\\section\{([^}]+)\}/g, (match, p1) => {
+      sectionCount++;
+      return `<h2 class="latex-compiled-h2">${sectionCount}. ${p1}</h2>`;
+    });
+
+    // Replace Subsection headings
+    let subsectionCount = 0;
+    html = html.replace(/\\subsection\{([^}]+)\}/g, (match, p1) => {
+      subsectionCount++;
+      return `<h3 class="latex-compiled-h3">${sectionCount}.${subsectionCount}. ${p1}</h3>`;
+    });
+
+    // Replace Equations
+    html = html.replace(/\\begin\{equation\}([\s\S]*?)\\end\{equation\}/g, (match, p1) => {
+      return `\n$$\n${p1.trim()}\n$$\n`;
+    });
+
+    // Replace itemize lists
+    html = html.replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g, (match, p1) => {
+      const items = p1.replace(/\\item\s+([^\n]+)/g, '<li>$1</li>');
+      return `<ul class="latex-compiled-ul">${items}</ul>`;
+    });
+
+    // Replace enumerate lists
+    html = html.replace(/\\begin\{enumerate\}([\s\S]*?)\\end\{enumerate\}/g, (match, p1) => {
+      const items = p1.replace(/\\item\s+([^\n]+)/g, '<li>$1</li>');
+      return `<ol class="latex-compiled-ol">${items}</ol>`;
+    });
+
+    // Replace formatting \textbf, \textit, \texttt
+    html = html.replace(/\\textbf\{([^}]+)\}/g, '<strong>$1</strong>');
+    html = html.replace(/\\textit\{([^}]+)\}/g, '<em>$1</em>');
+    html = html.replace(/\\texttt\{([^}]+)\}/g, '<code>$1</code>');
+
+    // Replace newlines with paragraph breaks
+    const lines = html.split('\n\n');
+    const paras = lines.map(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return '';
+      // Don't wrap headings, lists, or block equations in paragraphs
+      if (trimmed.startsWith('<h') || trimmed.startsWith('<ul') || trimmed.startsWith('<ol') || trimmed.startsWith('$$') || trimmed.startsWith('<div')) {
+        return trimmed;
+      }
+      return `<p class="latex-compiled-p">${trimmed}</p>`;
+    });
+
+    return paras.filter(Boolean).join('\n');
+  };
+
   // Multi-Format Note Downloader Utility
   const downloadNotesAs = (item, format) => {
     let content = '';
@@ -84,26 +180,104 @@ export default function Collections({
     } else if (format === 'pdf') {
       // PDF Print Trigger Window
       const printWindow = window.open('', '_blank');
+      
+      const isLatex = item.noteType === 'latex';
+      const parsedContent = isLatex ? compileLaTeX(notesText) : notesText;
+      
       printWindow.document.write(`
         <html>
           <head>
-            <title>${item.title} - Study Sheet PDF</title>
+            <title>${item.title} - Study Paper</title>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
             <style>
-              body { font-family: system-ui, sans-serif; padding: 40px; color: #0f172a; line-height: 1.65; }
-              h1 { color: #4f46e5; border-bottom: 2px solid #cbd5e1; padding-bottom: 10px; margin-top: 0; font-size: 24px; }
-              .meta { font-size: 13px; color: #64748b; margin-bottom: 25px; font-weight: 700; text-transform: uppercase; }
-              .notes-content { white-space: pre-wrap; font-size: 14px; background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; }
-              code { font-family: monospace; background: #e2e8f0; padding: 2px 4px; border-radius: 4px; font-size: 13px; }
+              ${isLatex ? `
+                body { 
+                  font-family: "Times New Roman", Times, Georgia, serif; 
+                  padding: 1.5in 1.2in; 
+                  color: #000000; 
+                  line-height: 1.6; 
+                  font-size: 11pt;
+                  background: #ffffff;
+                }
+                .latex-title-block {
+                  text-align: center;
+                  margin-bottom: 2rem;
+                }
+                .latex-compiled-title {
+                  font-size: 18pt;
+                  font-weight: bold;
+                  margin-bottom: 0.5rem;
+                }
+                .latex-compiled-author {
+                  font-size: 11pt;
+                  margin-bottom: 0.25rem;
+                }
+                .latex-compiled-date {
+                  font-size: 11pt;
+                  color: #333333;
+                  margin-bottom: 1.5rem;
+                }
+                .latex-compiled-h2 {
+                  font-size: 13pt;
+                  font-weight: bold;
+                  margin-top: 1.5rem;
+                  margin-bottom: 0.75rem;
+                  border: none;
+                }
+                .latex-compiled-h3 {
+                  font-size: 11pt;
+                  font-weight: bold;
+                  margin-top: 1.25rem;
+                  margin-bottom: 0.5rem;
+                }
+                .latex-compiled-p {
+                  margin-bottom: 1rem;
+                  text-indent: 0.25in;
+                  text-align: justify;
+                }
+                .latex-compiled-ul, .latex-compiled-ol {
+                  margin-bottom: 1rem;
+                  padding-left: 2rem;
+                }
+                .latex-compiled-ul li, .latex-compiled-ol li {
+                  margin-bottom: 0.25rem;
+                }
+              ` : `
+                body { font-family: system-ui, sans-serif; padding: 40px; color: #0f172a; line-height: 1.65; }
+                h1 { color: #4f46e5; border-bottom: 2px solid #cbd5e1; padding-bottom: 10px; margin-top: 0; font-size: 24px; }
+                .meta { font-size: 13px; color: #64748b; margin-bottom: 25px; font-weight: 700; text-transform: uppercase; }
+                .notes-content { white-space: pre-wrap; font-size: 14px; background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; }
+                code { font-family: monospace; background: #e2e8f0; padding: 2px 4px; border-radius: 4px; font-size: 13px; }
+              `}
             </style>
+            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
           </head>
           <body>
-            <h1>${item.title}</h1>
-            <div class="meta">Subject: ${item.subject} • Provider: ${item.provider} • Folder: ${item.folder || 'General'}</div>
-            <div class="notes-content">${notesText || 'No study notes recorded.'}</div>
+            ${isLatex ? `
+              <div id="latex-content">${parsedContent}</div>
+            ` : `
+              <h1>${item.title}</h1>
+              <div class="meta">Subject: ${item.subject} • Provider: ${item.provider} • Folder: ${item.folder || 'General'}</div>
+              <div class="notes-content">${parsedContent || 'No study notes recorded.'}</div>
+            `}
             <script>
               window.onload = function() {
-                window.print();
-                setTimeout(function() { window.close(); }, 500);
+                if (window.renderMathInElement) {
+                  window.renderMathInElement(document.body, {
+                    delimiters: [
+                      { left: "$$", right: "$$", display: true },
+                      { left: "$", right: "$", display: false },
+                      { left: "\\(", right: "\\)", display: false },
+                      { left: "\\[", right: "\\]", display: true }
+                    ],
+                    throwOnError: false
+                  });
+                }
+                setTimeout(function() {
+                  window.print();
+                  setTimeout(function() { window.close(); }, 500);
+                }, 300);
               }
             </script>
           </body>

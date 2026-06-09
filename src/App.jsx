@@ -6,6 +6,7 @@ import SearchHub from './components/SearchHub';
 import Collections from './components/Collections';
 import Workbench from './components/Workbench';
 import CheatConsole from './components/CheatConsole';
+import RelativisticTransition from './components/RelativisticTransition';
 import { curatedResources } from './data/curatedResources';
 
 export default function App() {
@@ -22,6 +23,8 @@ export default function App() {
   const [savedItems, setSavedItems] = useState([]);
   const [activeWorkbenchResource, setActiveWorkbenchResource] = useState(null);
   const [showCheatTab, setShowCheatTab] = useState(false);
+  const [activeTransition, setActiveTransition] = useState(null);
+  const [transitionClass, setTransitionClass] = useState('');
 
   // Load theme and saved binder items from localStorage on mount
   useEffect(() => {
@@ -38,6 +41,29 @@ export default function App() {
       }
     }
   }, []);
+  
+  // Trigger KaTeX rendering globally across the page whenever visual view state updates
+  useEffect(() => {
+    // We add a tiny delay to ensure React finishes DOM paint before KaTeX scans it
+    const timer = setTimeout(() => {
+      if (window.renderMathInElement) {
+        try {
+          window.renderMathInElement(document.body, {
+            delimiters: [
+              { left: "$$", right: "$$", display: true },
+              { left: "$", right: "$", display: false },
+              { left: "\\(", right: "\\)", display: false },
+              { left: "\\[", right: "\\]", display: true }
+            ],
+            throwOnError: false
+          });
+        } catch (err) {
+          console.error("KaTeX global render failed:", err);
+        }
+      }
+    }, 100);
+    return () => clearTimeout(timer);
+  }, [activePage, activeWorkbenchResource, savedItems]);
 
   // Listen for Ctrl+Alt+C to toggle Cheat Console
   useEffect(() => {
@@ -452,7 +478,7 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
   };
 
   // Save notes taken inside the Study Workbench
-  const handleSaveNotes = (itemId, notesContent, statusValue) => {
+  const handleSaveNotes = (itemId, notesContent, statusValue, noteType = 'markdown') => {
     // If the resource is NOT already saved in the binder, save it first
     const isAlreadySaved = savedItems.some(item => item.id === itemId);
     
@@ -463,6 +489,7 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
         folder: 'General',
         notes: notesContent,
         status: statusValue,
+        noteType: noteType,
         savedAt: new Date().toISOString()
       };
       nextItems = [newItem, ...savedItems];
@@ -473,6 +500,7 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
             ...item, 
             notes: notesContent,
             status: statusValue,
+            noteType: noteType,
             savedAt: new Date().toISOString()
           };
         }
@@ -481,6 +509,54 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
     }
     
     saveToLocalStorage(nextItems);
+  };
+
+  // Handle transition triggering when a user opens a resource card
+  const handleOpenResource = (resource) => {
+    if (!resource) {
+      setActiveWorkbenchResource(null);
+      return;
+    }
+
+    const title = (resource.title || '').toLowerCase();
+    const desc = (resource.description || '').toLowerCase();
+    const subject = (resource.subject || '').toLowerCase();
+
+    let type = 'quantum'; // Default generic fallback
+
+    if (
+      title.includes('black hole') || title.includes('blackhole') || title.includes('singularity') || title.includes('event horizon') ||
+      desc.includes('black hole') || desc.includes('blackhole') || desc.includes('singularity') || desc.includes('event horizon')
+    ) {
+      type = 'blackhole';
+    } else if (
+      title.includes('wormhole') || title.includes('warp') || title.includes('quantum') || title.includes('entanglement') || title.includes('teleportation') || title.includes('spacetime') || title.includes('space-time') || title.includes('interstellar') || title.includes('schwarzschild') || title.includes('einstein-rosen') ||
+      desc.includes('wormhole') || desc.includes('warp') || desc.includes('quantum') || desc.includes('entanglement') || desc.includes('teleportation')
+    ) {
+      type = 'warp';
+    } else if (
+      title.includes('supernova') || title.includes('star') || title.includes('stellar') || title.includes('fusion') || title.includes('big bang') || title.includes('nebula') || title.includes('galaxy') || title.includes('cosmic') ||
+      desc.includes('supernova') || desc.includes('star') || desc.includes('stellar') || desc.includes('fusion')
+    ) {
+      type = 'supernova';
+    } else if (
+      title.includes('relativity') || title.includes('time dilation') || title.includes('redshift') || title.includes('lorentz') || title.includes('minkowski') || title.includes('speed of light') ||
+      desc.includes('relativity') || desc.includes('time dilation') || desc.includes('redshift') ||
+      (subject.includes('physics') && (title.includes('time') || title.includes('gravity')))
+    ) {
+      type = 'redshift';
+    }
+
+    setTransitionClass(`transition-${type}`);
+    setActiveTransition({ type, resource });
+  };
+
+  const handleTransitionComplete = () => {
+    if (activeTransition) {
+      setActiveWorkbenchResource(activeTransition.resource);
+    }
+    setActiveTransition(null);
+    setTransitionClass('');
   };
 
   // Page Routing Switch
@@ -511,7 +587,7 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
             filters={filters} 
             setFilters={setFilters} 
             onSaveItem={handleSaveItem}
-            onStudyItem={setActiveWorkbenchResource}
+            onStudyItem={handleOpenResource}
             savedItems={savedItems}
           />
         );
@@ -521,7 +597,7 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
             savedItems={savedItems} 
             onUpdateStatus={handleUpdateStatus} 
             onRemoveItem={handleRemoveItem}
-            onStudyItem={setActiveWorkbenchResource}
+            onStudyItem={handleOpenResource}
             onMoveItemFolder={handleMoveItemFolder}
           />
         );
@@ -531,19 +607,22 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
   };
 
   return (
-    <div className="app-container">
-      {/* Side Navigation Bar */}
-      <Navbar 
-        activePage={activePage} 
-        setActivePage={setActivePage} 
-        theme={theme} 
-        toggleTheme={toggleTheme} 
-      />
+    <div className="app-container" style={{ overflow: 'hidden', minHeight: '100vh', width: '100vw' }}>
+      {/* Visual content wrapper that gets transformed/warped */}
+      <div className={`transition-content-wrapper ${transitionClass}`}>
+        {/* Side Navigation Bar */}
+        <Navbar 
+          activePage={activePage} 
+          setActivePage={setActivePage} 
+          theme={theme} 
+          toggleTheme={toggleTheme} 
+        />
 
-      {/* Main Content Area */}
-      <main className="app-main">
-        {renderActivePage()}
-      </main>
+        {/* Main Content Area */}
+        <main className="app-main">
+          {renderActivePage()}
+        </main>
+      </div>
 
       {/* Split-screen study workbench overlay */}
       {activeWorkbenchResource && (
@@ -552,6 +631,14 @@ simulate_fiscal_impact(mpc=0.8, change_g=50, change_t=-20)
           onClose={() => setActiveWorkbenchResource(null)}
           onSaveNotes={handleSaveNotes}
           savedItems={savedItems}
+        />
+      )}
+
+      {/* Relativistic Canvas Transition Overlay */}
+      {activeTransition && (
+        <RelativisticTransition 
+          type={activeTransition.type} 
+          onComplete={handleTransitionComplete}
         />
       )}
 

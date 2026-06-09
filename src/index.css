@@ -324,3 +324,73 @@ a:hover {
   text-shadow: 0 0 3px rgba(34, 197, 94, 0.6);
 }
 
+/* ==========================================================================
+   RELATIVISTIC TRANSITION INTERFACE WRAPPER EFFECTS
+   ========================================================================== */
+
+.transition-content-wrapper {
+  width: 100%;
+  display: flex;
+  min-height: 100vh;
+  position: relative;
+  transition: transform 1.6s cubic-bezier(0.25, 1, 0.5, 1), 
+              filter 1.6s cubic-bezier(0.25, 1, 0.5, 1), 
+              opacity 1.6s cubic-bezier(0.25, 1, 0.5, 1);
+  transform-origin: center center;
+  will-change: transform, filter, opacity;
+}
+
+/* 1. Black Hole: Swirl and collapse to center */
+.transition-blackhole {
+  transition: transform 1.9s cubic-bezier(0.6, -0.28, 0.735, 0.045), 
+              filter 1.9s ease-in, 
+              opacity 1.9s ease-in;
+  transform: rotate(1080deg) scale(0);
+  filter: blur(10px) contrast(3) brightness(0.2);
+  opacity: 0;
+}
+
+/* 2. Warp Speed / wormhole: rapid zoom in past camera */
+.transition-warp {
+  transition: transform 1.5s cubic-bezier(0.7, 0, 0.3, 1), 
+              filter 1.5s ease-in, 
+              opacity 1.5s ease-in;
+  transform: scale(6.5);
+  filter: blur(18px) brightness(2);
+  opacity: 0;
+}
+
+/* 3. Supernova: shake and blinding flash */
+.transition-supernova {
+  transition: transform 1.5s ease-out, 
+              filter 1.5s ease-in, 
+              opacity 1.5s ease-in;
+  animation: screenShake 0.4s ease-in-out infinite alternate;
+  filter: brightness(8) blur(12px) contrast(0.5);
+  transform: scale(1.08);
+  opacity: 0.1;
+}
+
+@keyframes screenShake {
+  0% { transform: translate(3px, 3px) rotate(0.5deg) scale(1.02); }
+  100% { transform: translate(-3px, -3px) rotate(-0.5deg) scale(1.02); }
+}
+
+/* 4. Time Dilation: chromatic skew and red-shifting colors */
+.transition-redshift {
+  transition: transform 1.5s cubic-bezier(0.25, 1, 0.5, 1), 
+              filter 1.5s ease-in-out;
+  transform: skewX(10deg) scale(0.94);
+  filter: hue-rotate(140deg) saturate(2.5) contrast(1.2) blur(1px);
+}
+
+/* 5. Quantum Tunneling: scan block interference */
+.transition-quantum {
+  transition: filter 1.4s steps(6), 
+              transform 1.4s cubic-bezier(0.075, 0.82, 0.165, 1), 
+              opacity 1.4s ease-out;
+  filter: contrast(4) brightness(0.4) grayscale(0.5) blur(2px);
+  transform: scaleY(0.01) scaleX(1.1);
+  opacity: 0;
+}
+

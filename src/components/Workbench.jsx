@@ -41,6 +41,27 @@ export default function Workbench({ resource, onClose, onSaveNotes, savedItems }
   const [textbookFontSize, setTextbookFontSize] = useState(16); // in px
   const [dyslexicMode, setDyslexicMode] = useState(false);
 
+  // LaTeX & KaTeX states
+  const [noteType, setNoteType] = useState('markdown'); // 'markdown' or 'latex'
+  const [showLatexHelp, setShowLatexHelp] = useState(false);
+  const [katexLoaded, setKatexLoaded] = useState(false);
+  const previewRef = useRef(null);
+
+  // Dynamically load KaTeX from CDN (now loaded globally in index.html, with a reactive fallback check)
+  useEffect(() => {
+    if (window.katex && window.renderMathInElement) {
+      setKatexLoaded(true);
+    } else {
+      const interval = setInterval(() => {
+        if (window.katex && window.renderMathInElement) {
+          setKatexLoaded(true);
+          clearInterval(interval);
+        }
+      }, 100);
+      return () => clearInterval(interval);
+    }
+  }, []);
+
   // Load existing notes, status and Wikipedia content ONLY when resource ID changes
   useEffect(() => {
     if (resource) {
@@ -48,9 +69,11 @@ export default function Workbench({ resource, onClose, onSaveNotes, savedItems }
       if (match) {
         setNotes(match.notes || '');
         setStatus(match.status || 'in-progress');
+        setNoteType(match.noteType || 'markdown');
       } else {
         setNotes('');
         setStatus('in-progress');
+        setNoteType('markdown');
       }
       setSaveStatus('All changes saved');
 
@@ -68,8 +91,190 @@ export default function Workbench({ resource, onClose, onSaveNotes, savedItems }
       setActiveSectionIdx(0);
       setRevealedAnswers({});
       setSelectedOptions({});
+      setShowLatexHelp(false);
     }
   }, [resource.id]); // ONLY trigger when opening a different resource!
+
+  // Toggle note format between Markdown & LaTeX
+  const handleToggleNoteType = (type) => {
+    setNoteType(type);
+    if (type === 'latex' && (!notes || notes.trim() === '')) {
+      const template = `\\documentclass{article}
+\\title{Study Paper: ${resource.title}}
+\\author{Student Researcher}
+\\date{\\today}
+\\begin{document}
+
+\\maketitle
+
+\\section{Introduction}
+Start typing your LaTeX notes here. You can compile formulas such as $E = mc^2$ or double-dollar block equations:
+
+\\begin{equation}
+i\\hbar\\frac{\\partial}{\\partial t}\\Psi(\\mathbf{r},t) = \\hat{H}\\Psi(\\mathbf{r},t)
+\\end{equation}
+
+\\section{Core Concepts}
+\\begin{itemize}
+    \\item Core Observation A
+    \\item Core Observation B
+\\end{itemize}
+
+\\end{document}`;
+      setNotes(template);
+    }
+    setSaveStatus('Saving changes...');
+  };
+
+  // Insert LaTeX elements at cursor position
+  const handleInsertLatex = (syntax) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const text = textarea.value;
+    const before = text.substring(0, start);
+    const after = text.substring(end, text.length);
+    const selected = text.substring(start, end);
+
+    let replacement = '';
+    if (syntax === 'section') replacement = `\\section{${selected || 'Section Title'}}\n`;
+    else if (syntax === 'subsection') replacement = `\\subsection{${selected || 'Subsection Title'}}\n`;
+    else if (syntax === 'bold') replacement = `\\textbf{${selected || 'bold text'}}`;
+    else if (syntax === 'italic') replacement = `\\textit{${selected || 'italic text'}}`;
+    else if (syntax === 'frac') replacement = `\\frac{${selected || 'a'}}{b}`;
+    else if (syntax === 'sqrt') replacement = `\\sqrt{${selected || 'x'}}`;
+    else if (syntax === 'int') replacement = `\\int_{a}^{b} ${selected || 'x'} dx`;
+    else if (syntax === 'matrix') replacement = `\\begin{matrix} ${selected || 'a'} & b \\\\ c & d \\end{matrix}`;
+    else if (syntax === 'equation') replacement = `\\begin{equation}\n  ${selected || 'E = mc^2'}\n\\end{equation}\n`;
+    else if (syntax === 'greek') replacement = `\\alpha`;
+
+    const newText = before + replacement + after;
+    setNotes(newText);
+    setSaveStatus('Saving changes...');
+
+    setTimeout(() => {
+      textarea.focus();
+      const newCursorPos = start + replacement.length;
+      textarea.setSelectionRange(newCursorPos, newCursorPos);
+    }, 0);
+  };
+
+  // Client-side LaTeX compiler parser
+  const compileLaTeX = (latexText) => {
+    if (!latexText) return '<div class="latex-compiled-empty">Start typing LaTeX code to compile your paper...</div>';
+
+    let html = latexText;
+
+    // Extract Title, Author, Date
+    let title = "";
+    let author = "";
+    let date = "";
+
+    const titleMatch = latexText.match(/\\title\{([^}]+)\}/);
+    if (titleMatch) title = titleMatch[1];
+
+    const authorMatch = latexText.match(/\\author\{([^}]+)\}/);
+    if (authorMatch) author = authorMatch[1];
+
+    const dateMatch = latexText.match(/\\date\{([^}]+)\}/);
+    if (dateMatch) {
+      date = dateMatch[1] === '\\today' ? new Date().toLocaleDateString() : dateMatch[1];
+    }
+
+    // Compile title block
+    const makeTitleHtml = `
+      <div class="latex-title-block">
+        <h1 class="latex-compiled-title">${title || 'Academic Paper'}</h1>
+        <div class="latex-compiled-author">${author || ''}</div>
+        <div class="latex-compiled-date">${date || ''}</div>
+      </div>
+    `;
+
+    // Replace \maketitle
+    html = html.replace(/\\maketitle/g, makeTitleHtml);
+
+    // Strip preamble items
+    html = html.replace(/\\documentclass\{[^}]+\}/g, '');
+    html = html.replace(/\\title\{[^}]+\}/g, '');
+    html = html.replace(/\\author\{[^}]+\}/g, '');
+    html = html.replace(/\\date\{[^}]+\}/g, '');
+    html = html.replace(/\\begin\{document\}/g, '');
+    html = html.replace(/\\end\{document\}/g, '');
+
+    // Replace explicit line breaks
+    html = html.replace(/\\\\|\\newline/g, '<br />');
+
+    // Replace Section headings
+    let sectionCount = 0;
+    html = html.replace(/\\section\{([^}]+)\}/g, (match, p1) => {
+      sectionCount++;
+      return `<h2 class="latex-compiled-h2">${sectionCount}. ${p1}</h2>`;
+    });
+
+    // Replace Subsection headings
+    let subsectionCount = 0;
+    html = html.replace(/\\subsection\{([^}]+)\}/g, (match, p1) => {
+      subsectionCount++;
+      return `<h3 class="latex-compiled-h3">${sectionCount}.${subsectionCount}. ${p1}</h3>`;
+    });
+
+    // Replace Equations
+    html = html.replace(/\\begin\{equation\}([\s\S]*?)\\end\{equation\}/g, (match, p1) => {
+      return `\n$$\n${p1.trim()}\n$$\n`;
+    });
+
+    // Replace itemize lists
+    html = html.replace(/\\begin\{itemize\}([\s\S]*?)\\end\{itemize\}/g, (match, p1) => {
+      const items = p1.replace(/\\item\s+([^\n]+)/g, '<li>$1</li>');
+      return `<ul class="latex-compiled-ul">${items}</ul>`;
+    });
+
+    // Replace enumerate lists
+    html = html.replace(/\\begin\{enumerate\}([\s\S]*?)\\end\{enumerate\}/g, (match, p1) => {
+      const items = p1.replace(/\\item\s+([^\n]+)/g, '<li>$1</li>');
+      return `<ol class="latex-compiled-ol">${items}</ol>`;
+    });
+
+    // Replace formatting \textbf, \textit, \texttt
+    html = html.replace(/\\textbf\{([^}]+)\}/g, '<strong>$1</strong>');
+    html = html.replace(/\\textit\{([^}]+)\}/g, '<em>$1</em>');
+    html = html.replace(/\\texttt\{([^}]+)\}/g, '<code>$1</code>');
+
+    // Replace newlines with paragraph breaks
+    const lines = html.split('\n\n');
+    const paras = lines.map(line => {
+      const trimmed = line.trim();
+      if (!trimmed) return '';
+      // Don't wrap headings, lists, or block equations in paragraphs
+      if (trimmed.startsWith('<h') || trimmed.startsWith('<ul') || trimmed.startsWith('<ol') || trimmed.startsWith('$$') || trimmed.startsWith('<div')) {
+        return trimmed;
+      }
+      return `<p class="latex-compiled-p">${trimmed}</p>`;
+    });
+
+    return paras.filter(Boolean).join('\n');
+  };
+
+  // Trigger KaTeX rendering on preview pane mounts and updates
+  useEffect(() => {
+    if (previewMode && previewRef.current && window.renderMathInElement) {
+      try {
+        window.renderMathInElement(previewRef.current, {
+          delimiters: [
+            { left: "$$", right: "$$", display: true },
+            { left: "$", right: "$", display: false },
+            { left: "\\(", right: "\\)", display: false },
+            { left: "\\[", right: "\\]", display: true }
+          ],
+          throwOnError: false
+        });
+      } catch (err) {
+        console.error("KaTeX auto-render failed:", err);
+      }
+    }
+  }, [notes, previewMode, noteType, katexLoaded, resource.id]);
 
   const handleNotesChange = (e) => {
     setNotes(e.target.value);
@@ -81,15 +286,15 @@ export default function Workbench({ resource, onClose, onSaveNotes, savedItems }
     if (!resource) return;
     
     const delayDebounce = setTimeout(() => {
-      onSaveNotes(resource.id, notes, status);
+      onSaveNotes(resource.id, notes, status, noteType);
       setSaveStatus('All changes saved');
     }, 1000);
 
     return () => clearTimeout(delayDebounce);
-  }, [notes, status, resource.id]);
+  }, [notes, status, noteType, resource.id]);
 
   const handleManualSave = () => {
-    onSaveNotes(resource.id, notes, status);
+    onSaveNotes(resource.id, notes, status, noteType);
     setSaveStatus('All changes saved');
   };
 
@@ -108,26 +313,104 @@ export default function Workbench({ resource, onClose, onSaveNotes, savedItems }
       mimeType = 'text/markdown;charset=utf-8;';
     } else if (format === 'pdf') {
       const printWindow = window.open('', '_blank');
+      
+      const isLatex = noteType === 'latex';
+      const parsedContent = isLatex ? compileLaTeX(notesText) : notesText;
+      
       printWindow.document.write(`
         <html>
           <head>
-            <title>${res.title} - Study Sheet PDF</title>
+            <title>${res.title} - Study Paper</title>
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
             <style>
-              body { font-family: system-ui, sans-serif; padding: 40px; color: #0f172a; line-height: 1.65; }
-              h1 { color: #4f46e5; border-bottom: 2px solid #cbd5e1; padding-bottom: 10px; margin-top: 0; font-size: 24px; }
-              .meta { font-size: 13px; color: #64748b; margin-bottom: 25px; font-weight: 700; text-transform: uppercase; }
-              .notes-content { white-space: pre-wrap; font-size: 14px; background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; }
-              code { font-family: monospace; background: #e2e8f0; padding: 2px 4px; border-radius: 4px; font-size: 13px; }
+              ${isLatex ? `
+                body { 
+                  font-family: "Times New Roman", Times, Georgia, serif; 
+                  padding: 1.5in 1.2in; 
+                  color: #000000; 
+                  line-height: 1.6; 
+                  font-size: 11pt;
+                  background: #ffffff;
+                }
+                .latex-title-block {
+                  text-align: center;
+                  margin-bottom: 2rem;
+                }
+                .latex-compiled-title {
+                  font-size: 18pt;
+                  font-weight: bold;
+                  margin-bottom: 0.5rem;
+                }
+                .latex-compiled-author {
+                  font-size: 11pt;
+                  margin-bottom: 0.25rem;
+                }
+                .latex-compiled-date {
+                  font-size: 11pt;
+                  color: #333333;
+                  margin-bottom: 1.5rem;
+                }
+                .latex-compiled-h2 {
+                  font-size: 13pt;
+                  font-weight: bold;
+                  margin-top: 1.5rem;
+                  margin-bottom: 0.75rem;
+                  border: none;
+                }
+                .latex-compiled-h3 {
+                  font-size: 11pt;
+                  font-weight: bold;
+                  margin-top: 1.25rem;
+                  margin-bottom: 0.5rem;
+                }
+                .latex-compiled-p {
+                  margin-bottom: 1rem;
+                  text-indent: 0.25in;
+                  text-align: justify;
+                }
+                .latex-compiled-ul, .latex-compiled-ol {
+                  margin-bottom: 1rem;
+                  padding-left: 2rem;
+                }
+                .latex-compiled-ul li, .latex-compiled-ol li {
+                  margin-bottom: 0.25rem;
+                }
+              ` : `
+                body { font-family: system-ui, sans-serif; padding: 40px; color: #0f172a; line-height: 1.65; }
+                h1 { color: #4f46e5; border-bottom: 2px solid #cbd5e1; padding-bottom: 10px; margin-top: 0; font-size: 24px; }
+                .meta { font-size: 13px; color: #64748b; margin-bottom: 25px; font-weight: 700; text-transform: uppercase; }
+                .notes-content { white-space: pre-wrap; font-size: 14px; background: #f8fafc; padding: 20px; border-radius: 8px; border: 1px solid #e2e8f0; }
+                code { font-family: monospace; background: #e2e8f0; padding: 2px 4px; border-radius: 4px; font-size: 13px; }
+              `}
             </style>
+            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+            <script src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
           </head>
           <body>
-            <h1>${res.title}</h1>
-            <div class="meta">Subject: ${res.subject} • Provider: ${res.provider}</div>
-            <div class="notes-content">${notesText || 'No study notes recorded.'}</div>
+            ${isLatex ? `
+              <div id="latex-content">${parsedContent}</div>
+            ` : `
+              <h1>${res.title}</h1>
+              <div class="meta">Subject: ${res.subject} • Provider: ${res.provider}</div>
+              <div class="notes-content">${parsedContent || 'No study notes recorded.'}</div>
+            `}
             <script>
               window.onload = function() {
-                window.print();
-                setTimeout(function() { window.close(); }, 500);
+                if (window.renderMathInElement) {
+                  window.renderMathInElement(document.body, {
+                    delimiters: [
+                      { left: "$$", right: "$$", display: true },
+                      { left: "$", right: "$", display: false },
+                      { left: "\\(", right: "\\)", display: false },
+                      { left: "\\[", right: "\\]", display: true }
+                    ],
+                    throwOnError: false
+                  });
+                }
+                setTimeout(function() {
+                  window.print();
+                  setTimeout(function() { window.close(); }, 500);
+                }, 300);
               }
             </script>
           </body>
@@ -738,32 +1021,89 @@ export default function Workbench({ resource, onClose, onSaveNotes, savedItems }
                   <span>Preview</span>
                 </button>
               </div>
-              <span className="save-status-indicator">{saveStatus}</span>
+
+              {/* Format Toggle Switcher */}
+              <div className="note-format-group flex-center" style={{ gap: '0.75rem' }}>
+                <div className="format-toggle-tabs">
+                  <button 
+                    className={`format-toggle-btn ${noteType === 'markdown' ? 'active' : ''}`}
+                    onClick={() => handleToggleNoteType('markdown')}
+                    title="Switch to Markdown Notes"
+                  >
+                    Markdown
+                  </button>
+                  <button 
+                    className={`format-toggle-btn ${noteType === 'latex' ? 'active' : ''}`}
+                    onClick={() => handleToggleNoteType('latex')}
+                    title="Switch to LaTeX Paper Compiler"
+                  >
+                    LaTeX
+                  </button>
+                </div>
+                <span className="save-status-indicator">{saveStatus}</span>
+              </div>
             </div>
 
             {/* Note text editor */}
             {!previewMode ? (
               <div className="editor-container">
-                {/* Formatting Toolbar */}
+                {/* Dynamic Formatting Toolbar */}
                 <div className="toolbar">
-                  <button onClick={() => handleInsertMarkdown('heading')} title="Add Heading"><Heading1 size={14} /></button>
-                  <button onClick={() => handleInsertMarkdown('bold')} title="Bold Text"><Bold size={14} /></button>
-                  <button onClick={() => handleInsertMarkdown('italic')} title="Italic Text"><Italic size={14} /></button>
-                  <button onClick={() => handleInsertMarkdown('list')} title="Add Bullet List"><List size={14} /></button>
-                  <button onClick={() => handleInsertMarkdown('code')} title="Add Code Block"><Code size={14} /></button>
+                  {noteType === 'markdown' ? (
+                    <>
+                      <button onClick={() => handleInsertMarkdown('heading')} title="Add Heading"><Heading1 size={14} /></button>
+                      <button onClick={() => handleInsertMarkdown('bold')} title="Bold Text"><Bold size={14} /></button>
+                      <button onClick={() => handleInsertMarkdown('italic')} title="Italic Text"><Italic size={14} /></button>
+                      <button onClick={() => handleInsertMarkdown('list')} title="Add Bullet List"><List size={14} /></button>
+                      <button onClick={() => handleInsertMarkdown('code')} title="Add Code Block"><Code size={14} /></button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => handleInsertLatex('section')} title="Add Section (\section)" style={{ fontWeight: 'bold', fontSize: '11px', padding: '0.2rem 0.4rem' }}>Sec</button>
+                      <button onClick={() => handleInsertLatex('subsection')} title="Add Subsection (\subsection)" style={{ fontWeight: 'bold', fontSize: '11px', padding: '0.2rem 0.4rem' }}>Sub</button>
+                      <button onClick={() => handleInsertLatex('bold')} title="Bold Text (\textbf)"><Bold size={14} /></button>
+                      <button onClick={() => handleInsertLatex('italic')} title="Italic Text (\textit)"><Italic size={14} /></button>
+                      <button onClick={() => handleInsertLatex('frac')} title="Insert Fraction (\frac)" style={{ fontWeight: 'bold', fontSize: '11px', padding: '0.2rem 0.4rem' }}>a/b</button>
+                      <button onClick={() => handleInsertLatex('sqrt')} title="Insert Square Root (\sqrt)" style={{ fontWeight: 'bold', fontSize: '11px', padding: '0.2rem 0.4rem' }}>√x</button>
+                      <button onClick={() => handleInsertLatex('equation')} title="Insert Equation Block (\begin{equation})" style={{ fontWeight: 'bold', fontSize: '11px', padding: '0.2rem 0.4rem' }}>eq</button>
+                      <button onClick={() => handleInsertLatex('int')} title="Insert Integral (\int)" style={{ fontWeight: 'bold', fontSize: '11px', padding: '0.2rem 0.4rem' }}>∫</button>
+                      <button onClick={() => handleInsertLatex('matrix')} title="Insert Matrix (\begin{matrix})" style={{ fontWeight: 'bold', fontSize: '11px', padding: '0.2rem 0.4rem' }}>[M]</button>
+                      <button 
+                        onClick={() => setShowLatexHelp(!showLatexHelp)} 
+                        title="Show LaTeX Help Guide"
+                        className={`help-toggle-btn ${showLatexHelp ? 'active' : ''}`}
+                        style={{ 
+                          marginLeft: 'auto', 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '0.25rem', 
+                          padding: '0.25rem 0.5rem', 
+                          borderRadius: '4px', 
+                          background: showLatexHelp ? 'var(--accent-primary)' : 'var(--accent-glow)', 
+                          color: showLatexHelp ? '#ffffff' : 'var(--accent-primary)', 
+                          border: '1px solid rgba(99, 102, 241, 0.2)', 
+                          fontSize: '0.75rem', 
+                          fontWeight: 600 
+                        }}
+                      >
+                        Help & Commands
+                      </button>
+                    </>
+                  )}
                 </div>
                 <textarea
                   ref={textareaRef}
                   value={notes}
                   onChange={handleNotesChange}
-                  placeholder="Summarize this resource, paste code blocks, or draft your study roadmap... Notes support basic markdown formats!"
+                  placeholder={noteType === 'latex' ? "Write LaTeX document code here... Define \\title{}, \\author{}, \\maketitle, and write section papers!" : "Summarize this resource, paste code blocks, or draft your study roadmap... Notes support basic markdown formats!"}
                   className="notepad-textarea"
                 />
               </div>
             ) : (
               <div 
-                className="preview-container"
-                dangerouslySetInnerHTML={{ __html: parseMarkdown(notes) }}
+                ref={previewRef}
+                className={noteType === 'latex' ? 'latex-compiled-preview' : 'preview-container'}
+                dangerouslySetInnerHTML={{ __html: noteType === 'latex' ? compileLaTeX(notes) : parseMarkdown(notes) }}
               />
             )}
 
@@ -809,6 +1149,85 @@ export default function Workbench({ resource, onClose, onSaveNotes, savedItems }
                 </button>
               </div>
             </div>
+
+            {/* Integrated LaTeX Help Panel Overlay */}
+            {showLatexHelp && (
+              <div className="latex-help-overlay">
+                <div className="latex-help-header flex-between">
+                  <h3>LaTeX Command Guide</h3>
+                  <button className="help-close-btn" onClick={() => setShowLatexHelp(false)}>
+                    <X size={16} />
+                  </button>
+                </div>
+                <div className="latex-help-body">
+                  <div className="help-section">
+                    <h4>Document Structure</h4>
+                    <table>
+                      <tbody>
+                        <tr><td><code>\documentclass{"{article}"}</code></td><td>Define document type</td></tr>
+                        <tr><td><code>\title{"{Text}"}</code></td><td>Set document title</td></tr>
+                        <tr><td><code>\author{"{Text}"}</code></td><td>Set author name</td></tr>
+                        <tr><td><code>\date{"{\\today}"}</code></td><td>Set date of paper</td></tr>
+                        <tr><td><code>\maketitle</code></td><td>Render title block header</td></tr>
+                        <tr><td><code>\section{"{Name}"}</code></td><td>First level heading</td></tr>
+                        <tr><td><code>\subsection{"{Name}"}</code></td><td>Second level heading</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="help-section">
+                    <h4>Math & Equations</h4>
+                    <table>
+                      <tbody>
+                        <tr><td><code>$E = mc^2$</code></td><td>Inline math formula</td></tr>
+                        <tr><td><code>$$E = mc^2$$</code></td><td>Centered block formula</td></tr>
+                        <tr><td><code>\begin{"{equation}"}...\end{"{equation}"}</code></td><td>Numbered block equation</td></tr>
+                        <tr><td><code>\frac{"{a}"}{"{b}"}</code></td><td>Fraction: <sup>a</sup>&frasl;<sub>b</sub></td></tr>
+                        <tr><td><code>\sqrt{"{x}"}</code></td><td>Square root symbol</td></tr>
+                        <tr><td><code>\int_a^b</code></td><td>Integral calculus bounds</td></tr>
+                        <tr><td><code>\sum_i^n</code></td><td>Summation series math</td></tr>
+                        <tr><td><code>^ and _</code></td><td>Superscript (x^2) and subscript (x_i)</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="help-section">
+                    <h4>Text Formatting</h4>
+                    <table>
+                      <tbody>
+                        <tr><td><code>\textbf{"{text}"}</code></td><td><b>Bold weight text</b></td></tr>
+                        <tr><td><code>\textit{"{text}"}</code></td><td><i>Italic slanted text</i></td></tr>
+                        <tr><td><code>\texttt{"{text}"}</code></td><td><code>Monospace code font</code></td></tr>
+                        <tr><td><code>\\\\ or \newline</code></td><td>Force line break</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="help-section">
+                    <h4>Lists & Environments</h4>
+                    <table>
+                      <tbody>
+                        <tr><td><code>\begin{"{itemize}"} \item A \end{"{itemize}"}</code></td><td>Bulleted list items</td></tr>
+                        <tr><td><code>\begin{"{enumerate}"} \item A \end{"{enumerate}"}</code></td><td>Numbered list items</td></tr>
+                        <tr><td><code>\begin{"{matrix}"} a & b \\ c & d \end{"{matrix}"}</code></td><td>Matrix cell alignments</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <div className="help-section">
+                    <h4>Greek Symbols & Constants</h4>
+                    <table>
+                      <tbody>
+                        <tr><td><code>\alpha, \beta, \gamma</code></td><td>α, β, γ</td></tr>
+                        <tr><td><code>\pi, \theta, \lambda</code></td><td>π, θ, λ</td></tr>
+                        <tr><td><code>\infty, \partial, \nabla</code></td><td>∞, ∂, ∇</td></tr>
+                        <tr><td><code>\hbar, \psi, \Psi</code></td><td>Planck constant, wavefunctions</td></tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
 
           </div>
 
@@ -1707,16 +2126,236 @@ export default function Workbench({ resource, onClose, onSaveNotes, savedItems }
           letter-spacing: 0.05em;
         }
 
-        .answer-status-pill.status-correct {
-          background: rgba(16, 185, 129, 0.15);
-          color: #10b981;
-          border: 1px solid rgba(16, 185, 129, 0.3);
-        }
-
         .answer-status-pill.status-incorrect {
           background: rgba(239, 68, 68, 0.15);
           color: #ef4444;
           border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        /* LaTeX compile preview and tools styles */
+        .latex-compiled-preview {
+          flex: 1;
+          padding: 3rem 2.5rem;
+          overflow-y: auto;
+          line-height: 1.6;
+          font-size: 11pt;
+          background: #ffffff !important;
+          color: #000000 !important;
+          font-family: "Times New Roman", Times, Georgia, serif !important;
+          box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        .latex-compiled-preview .latex-title-block {
+          text-align: center;
+          margin-bottom: 2rem;
+          border-bottom: 1px solid #dddddd;
+          padding-bottom: 1.5rem;
+        }
+
+        .latex-compiled-preview .latex-compiled-title {
+          font-size: 18pt;
+          font-weight: bold;
+          margin-bottom: 0.5rem;
+          color: #000000 !important;
+          border: none !important;
+          padding: 0 !important;
+          font-family: "Times New Roman", Times, Georgia, serif !important;
+        }
+
+        .latex-compiled-preview .latex-compiled-author {
+          font-size: 11pt;
+          margin-bottom: 0.25rem;
+          color: #333333 !important;
+        }
+
+        .latex-compiled-preview .latex-compiled-date {
+          font-size: 11pt;
+          color: #555555 !important;
+        }
+
+        .latex-compiled-preview .latex-compiled-h2 {
+          font-size: 13pt;
+          font-weight: bold;
+          margin-top: 1.75rem;
+          margin-bottom: 0.75rem;
+          color: #000000 !important;
+          border: none !important;
+          padding: 0 !important;
+          font-family: "Times New Roman", Times, Georgia, serif !important;
+        }
+
+        .latex-compiled-preview .latex-compiled-h3 {
+          font-size: 11pt;
+          font-weight: bold;
+          margin-top: 1.25rem;
+          margin-bottom: 0.5rem;
+          color: #000000 !important;
+          font-family: "Times New Roman", Times, Georgia, serif !important;
+        }
+
+        .latex-compiled-preview .latex-compiled-p {
+          margin-bottom: 1rem;
+          text-indent: 0.25in;
+          text-align: justify;
+          color: #000000 !important;
+        }
+
+        .latex-compiled-preview h2 + p,
+        .latex-compiled-preview h3 + p,
+        .latex-compiled-preview .latex-title-block + p {
+          text-indent: 0 !important;
+        }
+
+        .latex-compiled-preview .latex-compiled-ul, 
+        .latex-compiled-preview .latex-compiled-ol {
+          margin-bottom: 1rem;
+          padding-left: 2.5rem !important;
+          list-style-position: outside !important;
+        }
+
+        .latex-compiled-preview .latex-compiled-ul li {
+          list-style-type: disc !important;
+          margin-bottom: 0.25rem;
+          color: #000000 !important;
+        }
+
+        .latex-compiled-preview .latex-compiled-ol li {
+          list-style-type: decimal !important;
+          margin-bottom: 0.25rem;
+          color: #000000 !important;
+        }
+
+        .latex-compiled-preview code {
+          background: #f4f4f4 !important;
+          color: #333333 !important;
+          border: 1px solid #cccccc !important;
+          font-family: monospace !important;
+          padding: 0.1rem 0.3rem !important;
+          border-radius: 4px !important;
+          font-size: 0.9em !important;
+        }
+
+        /* Format switcher controls */
+        .format-toggle-tabs {
+          display: flex;
+          background: var(--bg-primary);
+          padding: 2px;
+          border-radius: 6px;
+          border: 1px solid var(--border-color);
+        }
+
+        .format-toggle-btn {
+          background: transparent;
+          border: none;
+          color: var(--text-secondary);
+          padding: 0.25rem 0.6rem;
+          font-size: 0.75rem;
+          font-weight: 700;
+          cursor: pointer;
+          border-radius: 4px;
+          transition: all 0.2s ease;
+        }
+
+        .format-toggle-btn:hover {
+          color: var(--text-primary);
+        }
+
+        .format-toggle-btn.active {
+          color: var(--accent-primary);
+          background: var(--accent-glow);
+        }
+
+        /* LaTeX Help slide-out overlay */
+        .latex-help-overlay {
+          position: absolute;
+          top: 0;
+          right: 0;
+          bottom: 0;
+          left: 0;
+          background: var(--bg-secondary);
+          border-left: 1px solid var(--border-color);
+          display: flex;
+          flex-direction: column;
+          z-index: 10;
+          animation: slideIn 0.2s ease-out;
+        }
+
+        @keyframes slideIn {
+          from { transform: translateX(100%); }
+          to { transform: translateX(0); }
+        }
+
+        .latex-help-header {
+          padding: 1rem 1.5rem;
+          border-bottom: 1px solid var(--border-color);
+          background: var(--bg-tertiary);
+        }
+
+        .latex-help-header h3 {
+          font-size: 1rem;
+          font-family: var(--font-display);
+          color: var(--text-primary);
+          margin: 0;
+        }
+
+        .help-close-btn {
+          background: transparent;
+          border: none;
+          color: var(--text-secondary);
+          cursor: pointer;
+          padding: 0.25rem;
+          border-radius: 50%;
+          display: flex;
+          transition: all 0.2s ease;
+        }
+
+        .help-close-btn:hover {
+          background: var(--border-color);
+          color: var(--text-primary);
+        }
+
+        .latex-help-body {
+          flex: 1;
+          overflow-y: auto;
+          padding: 1.5rem;
+          display: flex;
+          flex-direction: column;
+          gap: 1.5rem;
+        }
+
+        .help-section h4 {
+          font-size: 0.85rem;
+          font-weight: 800;
+          text-transform: uppercase;
+          color: var(--accent-primary);
+          margin-top: 0;
+          margin-bottom: 0.5rem;
+        }
+
+        .help-section table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 0.8rem;
+        }
+
+        .help-section td {
+          padding: 0.4rem 0.5rem;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+          color: var(--text-secondary);
+          vertical-align: middle;
+        }
+
+        .help-section tr:hover td {
+          background: rgba(255, 255, 255, 0.02);
+        }
+
+        .help-section code {
+          background: var(--bg-tertiary) !important;
+          border: 1px solid var(--border-color) !important;
+          padding: 0.15rem 0.35rem !important;
+          border-radius: 4px !important;
+          color: var(--accent-secondary) !important;
+          font-family: monospace !important;
         }
       `}</style>
     </div>

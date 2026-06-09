@@ -63,6 +63,28 @@ export default function SearchHub({
     return () => clearTimeout(delayDebounce);
   }, [query, filters]);
 
+  // Trigger math formatting whenever search results change
+  useEffect(() => {
+    if (window.renderMathInElement && results.length > 0) {
+      const timer = setTimeout(() => {
+        try {
+          window.renderMathInElement(document.body, {
+            delimiters: [
+              { left: "$$", right: "$$", display: true },
+              { left: "$", right: "$", display: false },
+              { left: "\\(", right: "\\)", display: false },
+              { left: "\\[", right: "\\]", display: true }
+            ],
+            throwOnError: false
+          });
+        } catch (err) {
+          console.error("KaTeX local search render failed:", err);
+        }
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [results]);
+
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({
       ...prev,
